@@ -49,3 +49,17 @@ python3 pot_test.py
 ```
 
 Turning the knob should change the printed position between approximately 0% and 100%. This wiring and code are specifically for an MCP3008 chip. If you have a different ADC module, use its pinout and driver instead.
+
+## S3 device-window bridge
+
+Keep the reed switch wired as above. On the Raspberry Pi, run:
+
+```bash
+python3 reed_bridge.py
+```
+
+Then open `https://sleep-airline-s3.vercel.app/?reed=1` in the browser **on the same Pi**. The S3 page must include the companion reed bridge change; the current published page does not yet have it. If the browser asks to access a device on the local network, allow this site to reach the bridge. Magnet close requests takeoff; magnet removal requests landing after takeoff completes. Browser audio may need one tap on the page before the first sensor event.
+
+The companion S3 change is saved in `integration-patches/SleepAirlineS3-reed-bridge.patch`. A maintainer of `MorganHsuuu/SleepAirlineS3` can apply it from that repository's root with `git apply /path/to/SleepAirlineS3-reed-bridge.patch`, review it, and deploy the updated page.
+
+The bridge serves only `127.0.0.1` and accepts cross-origin reads only from the S3 site. Do not expose port 8765 to the network.
