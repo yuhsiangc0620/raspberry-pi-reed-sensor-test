@@ -1,6 +1,6 @@
 # Raspberry Pi reed sensor test
 
-Simple test for a **two-wire, normally open reed switch**. The Raspberry Pi's internal pull-up keeps GPIO17 high while the switch is open; closing the switch to ground reports a detected magnet.
+Raspberry Pi setup for two reed switches, an ADS1115 direction knob, and the Sleep Airline device kiosk. Older one-switch tests remain below for reference.
 
 ## 最新：單一裝置畫面與首次配網
 
@@ -32,9 +32,9 @@ python3 device_kiosk.py
 正式配網需實機驗證 `wlan0` 能以 NetworkManager 開熱點並切回家中 Wi-Fi，以及 iPhone Safari、Android Chrome 在切換 Wi-Fi 後能返回 APP。若熱點地址不是 `10.42.0.1`，需調整 `device_kiosk.py` 的 `HOTSPOT_IP` 與 APP 本機設定 URL。
 
 
-## Current setup: two reeds + ADS1115 direction knob
+## Standalone bridge test: two reeds + ADS1115 direction knob
 
-Use `device_bridge.py` for the full-screen S3 page with `?device=1`:
+Use `device_bridge.py` by itself when checking sensor wiring before launching the kiosk. The deployed S3 main page detects the bridge automatically.
 
 | Input | Connection | Action |
 | --- | --- | --- |
@@ -57,7 +57,7 @@ git pull
 python3 device_bridge.py
 ```
 
-Keep the terminal running. Once the companion website PR is merged and deployed, open **https://sleep-airline-s3.vercel.app/?device=1 on the same Pi**. Allow local-device access and tap the page once for audio. Only use one device-control tab. Move both magnets away first; turn the knob, then approach the takeoff reed. Approaching the landing reed during takeoff queues landing until cruise. Moving away from either reed does not trigger a flight action.
+Keep the terminal running. Once the companion website PR is merged and deployed, open **https://sleep-airline-s3.vercel.app/ on the same Pi**. Allow local-device access and tap the page once for audio. Only use one device-control tab. Move both magnets away first; turn the knob, then approach the takeoff reed. Approaching the landing reed during takeoff queues landing until cruise. Moving away from either reed does not trigger a flight action.
 
 The initial connection/reconnection never replays old reed commands. Both magnets active at once are ignored. The knob changes heading only while ready or landed (after the existing mood feedback completes), and does not fill in mood feedback. ADC errors retain the previous heading while reeds stay operational. The terminal and `http://127.0.0.1:8765/state` show readings for diagnosis.
 
