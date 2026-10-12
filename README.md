@@ -23,7 +23,7 @@ git pull
 python3 device_kiosk.py
 ```
 
-首次測試前，停止原本的 `device_bridge.py`、`reed_bridge.py` 及多餘 Chromium 感測器分頁，以免占用 GPIO 或連接埠。新的腳本會自行啟動 `device_bridge.py`。測試設定畫面可用 `python3 device_kiosk.py --dry-run`；不開瀏覽器可加 `--no-browser`。`--dry-run` 不會修改 Wi-Fi 或呼叫雲端，**不代表完成真正綁定**。
+首次測試前，停止原本的 `device_bridge.py`、`reed_bridge.py` 及多餘 Chromium 感測器分頁，以免占用 GPIO 或連接埠。新的腳本會自行啟動 `device_bridge.py`。測試設定畫面可用 `python3 device_kiosk.py --dry-run`；不開瀏覽器可加 `--no-browser`。`--dry-run` 使用獨立暫存身分，不會修改 Wi-Fi、正式綁定或呼叫雲端，**不代表完成真正綁定**。
 
 樹莓派在 `~/.config/sleep-airline/device.json` 儲存裝置 ID、憑證與已綁定的旅客 ID，檔案權限為 `0600`；請勿上傳 GitHub。家中 Wi-Fi 密碼只交給 NetworkManager，不寫入此檔案或 Vercel。解除綁定在手機 APP 操作；樹莓派收到後會回到 QR 畫面。若重開機時網路暫時無法連線，已綁定身分會保留。
 

@@ -16,6 +16,7 @@ import secrets
 import shutil
 import subprocess
 import sys
+import tempfile
 from threading import Lock, Thread
 import time
 import urllib.error
@@ -321,12 +322,16 @@ def handler_for(kiosk):
 
 
 def main():
+    global STATE_FILE
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--interface", default="wlan0")
     parser.add_argument("--dry-run", action="store_true", help="Test UI without changing Wi-Fi or calling the cloud")
     parser.add_argument("--no-browser", action="store_true")
     parser.add_argument("--reconfigure-wifi", action="store_true", help="Reopen the setup hotspot without unbinding")
     args = parser.parse_args()
+    dry_state = tempfile.TemporaryDirectory(prefix="sleep-airline-dry-run-") if args.dry_run else None
+    if dry_state:
+        STATE_FILE = Path(dry_state.name) / "device.json"
     kiosk = Kiosk(args)
     if not args.dry_run:
         kiosk.bridge = subprocess.Popen([sys.executable, str(Path(__file__).with_name("device_bridge.py")),
@@ -365,6 +370,8 @@ def main():
             kiosk.bridge.terminate()
         if kiosk.browser and kiosk.browser.poll() is None:
             kiosk.browser.terminate()
+        if dry_state:
+            dry_state.cleanup()
 
 
 if __name__ == "__main__":
