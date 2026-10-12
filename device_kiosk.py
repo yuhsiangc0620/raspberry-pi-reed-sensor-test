@@ -28,6 +28,7 @@ HOME = Path.home()
 STATE_FILE = Path(os.environ.get("SLEEP_AIRLINE_STATE_FILE", str(HOME / ".config/sleep-airline/device.json")))
 APP_URL = "https://night-departures.vercel.app/"
 WINDOW_URL = "https://sleep-airline-s3.vercel.app/"
+WINDOW_ORIGIN = WINDOW_URL.rstrip("/")
 API_URL = "https://sleep-airline-s3.vercel.app/api/pairing"
 HOTSPOT_IP = "10.42.0.1"
 HOTSPOT_NAME = "SleepAirline-Setup"
@@ -270,8 +271,19 @@ def handler_for(kiosk):
             self.send_header("Content-Length", str(len(encoded)))
             self.send_header("Cache-Control", "no-store")
             self.send_header("X-Content-Type-Options", "nosniff")
+            if self.path == "/api/status" and self.headers.get("Origin") == WINDOW_ORIGIN:
+                self.send_header("Access-Control-Allow-Origin", WINDOW_ORIGIN)
+                self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
+                if self.headers.get("Access-Control-Request-Private-Network") == "true":
+                    self.send_header("Access-Control-Allow-Private-Network", "true")
             self.end_headers()
             self.wfile.write(encoded)
+
+        def do_OPTIONS(self):
+            if self.path == "/api/status" and self.headers.get("Origin") == WINDOW_ORIGIN:
+                self.reply(204, "")
+            else:
+                self.reply(403, "Forbidden", "text/plain")
 
         def do_GET(self):
             if self.path == "/device":
@@ -284,6 +296,7 @@ def handler_for(kiosk):
                 self.reply(200, json.dumps({
                     "paired": bool(kiosk.state.get("passengerId")) and not kiosk.reconfiguring,
                     "status": kiosk.status, "message": kiosk.message, "online": kiosk.online,
+                    "bridgeExitCode": kiosk.bridge.poll() if kiosk.bridge else None,
                     "setupCodeChanged": time.time() >= kiosk.state.get("setupExpires", 0)
                         and not kiosk.state.get("passengerId"),
                 }), "application/json")
