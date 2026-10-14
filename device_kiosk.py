@@ -73,7 +73,7 @@ def html_page(title, content, script=""):
     return f"""<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta http-equiv="Cache-Control" content="no-store"><title>{title} · SLEEP AIRLINE</title>
-<style>:root{{font-family:system-ui,sans-serif;color:#f4f1e9;background:#102c32}}
+<style>:root{{font-family:system-ui,sans-serif;color:#f4f1e9;background:#000}}
 *{{box-sizing:border-box}}body{{margin:0;min-height:100vh;display:grid;place-items:center;padding:28px}}
 main{{width:min(100%,560px)}}.brand{{font-size:12px;letter-spacing:.28em;line-height:1.5;color:#b7ced0}}
 .eyebrow{{font-size:11px;letter-spacing:.18em;color:#a8c1c4;margin-top:42px}}h1{{font-size:clamp(34px,7vw,60px);font-weight:400;line-height:1.12;letter-spacing:.05em;margin:14px 0 18px}}
