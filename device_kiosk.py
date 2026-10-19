@@ -27,8 +27,8 @@ from urllib.parse import quote
 HOME = Path.home()
 STATE_FILE = Path(os.environ.get("SLEEP_AIRLINE_STATE_FILE", str(HOME / ".config/sleep-airline/device.json")))
 APP_URL = "https://night-departures.vercel.app/"
-WINDOW_URL = "https://sleep-airline-s3.vercel.app/"
-WINDOW_ORIGIN = WINDOW_URL.rstrip("/")
+WINDOW_ORIGIN = "https://sleep-airline-s3.vercel.app"
+WINDOW_URL = WINDOW_ORIGIN + "/?kiosk=1"
 API_URL = "https://sleep-airline-s3.vercel.app/api/pairing"
 HOTSPOT_IP = "10.42.0.1"
 HOTSPOT_NAME = "SleepAirline-Setup"
@@ -148,8 +148,9 @@ class Kiosk:
 
     def device_page(self):
         if self.state.get("passengerId") and not self.reconfiguring:
+            target = WINDOW_URL if self.online else "http://127.0.0.1:8766/offline"
             content = '<p class="eyebrow">CONNECTED DEVICE</p><h1>準備起飛</h1><p>正在開啟飛機窗主畫面…</p>'
-            return html_page("裝置已連線", content, f"location.replace({json.dumps(WINDOW_URL)});")
+            return html_page("裝置已連線", content, f"location.replace({json.dumps(target)});")
         try:
             qr = self.current_qr()
             image = f'<div class="qr"><img src="data:image/png;base64,{qr}" alt="配對 QR Code"></div>'
@@ -340,13 +341,14 @@ def main():
     parser.add_argument("--interface", default="wlan0")
     parser.add_argument("--dry-run", action="store_true", help="Test UI without changing Wi-Fi or calling the cloud")
     parser.add_argument("--no-browser", action="store_true")
+    parser.add_argument("--no-bridge", action="store_true", help="Use the existing S3 sensor bridge service")
     parser.add_argument("--reconfigure-wifi", action="store_true", help="Reopen the setup hotspot without unbinding")
     args = parser.parse_args()
     dry_state = tempfile.TemporaryDirectory(prefix="sleep-airline-dry-run-") if args.dry_run else None
     if dry_state:
         STATE_FILE = Path(dry_state.name) / "device.json"
     kiosk = Kiosk(args)
-    if not args.dry_run:
+    if not args.dry_run and not args.no_bridge:
         kiosk.bridge = subprocess.Popen([sys.executable, str(Path(__file__).with_name("device_bridge.py")),
                                         "--identity-file", str(STATE_FILE)])
     if kiosk.state.get("passengerId") and not args.dry_run:
