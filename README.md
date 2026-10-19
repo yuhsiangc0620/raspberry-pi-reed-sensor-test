@@ -34,9 +34,25 @@ git pull
 python3 device_kiosk.py
 ```
 
+### 與 S3 全螢幕開機整合
+
+如果已安裝 `~/SleepAirlineS3/hardware/install-kiosk.sh`，保留原本的全螢幕瀏覽器和感測器服務，再安裝本專案的配對服務：
+
+```bash
+cd ~/raspberry-pi-reed-sensor-test
+git pull
+chmod +x install-pairing-service.sh
+./install-pairing-service.sh
+sudo reboot
+```
+
+這個安裝程式讓現有感測器服務讀取 `~/.config/sleep-airline/device.json` 的旅客身分，並在背景啟動本機配對／配網服務。第一次開機或解除綁定後顯示 QR；已配對且連網時直接顯示 S3 飛機窗。斷網時顯示本機離線頁，連線恢復後再開飛機窗。請勿在這種安裝方式下另外手動執行 `device_kiosk.py` 或 `device_bridge.py`，避免重複佔用連接埠。
+
+首次配對畫面的自動切換還需要 S3 專案更新後的 `hardware/kiosk.sh`。該變更合併後，在樹莓派執行 `cd ~/SleepAirlineS3 && git pull && cd hardware && ./install-kiosk.sh`，讓已安裝的開機腳本換成新版，再重新開機。
+
 首次使用時，裝置螢幕顯示配對 QR 和暫時 Wi-Fi。用手機掃 QR，在 APP 建立或恢復 Passenger ID，依指示加入裝置 Wi-Fi，並在**手機上的裝置本機設定頁**輸入家中 Wi-Fi。裝置連網且伺服器確認綁定後，同一個 Chromium 視窗會開啟正式飛機窗。旋鈕選方位；磁鐵靠近 GPIO17 起飛，靠近 GPIO27 降落。移開磁鐵不觸發動作。
 
-執行前先停止舊的 Python 橋接程式與多餘的 Chromium 感測器分頁，避免 GPIO 或連接埠 8765 被佔用。`device_kiosk.py` 會自行啟動 `device_bridge.py`；平常不需另外開啟它或加上 `?device=1`。
+手動執行模式下，先停止舊的 Python 橋接程式與多餘的 Chromium 感測器分頁，避免 GPIO 或連接埠 8765 被佔用。`device_kiosk.py` 會自行啟動 `device_bridge.py`；使用上面的整合安裝時則由原有 S3 服務提供橋接，不需再手動啟動任何 Python 程式。
 
 ## 錯誤與維護
 
