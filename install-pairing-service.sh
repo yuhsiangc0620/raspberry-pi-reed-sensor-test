@@ -10,6 +10,7 @@ BRIDGE_UNIT="sleep-airline-bridge.service"
 PYTHON="$(command -v python3)"
 DEVICE_USER="$(id -un)"
 DEVICE_GROUP="$(id -gn)"
+POLKIT_RULE="/etc/polkit-1/rules.d/00-sleep-airline-pairing.rules"
 
 if [ ! -f "$BRIDGE" ] || ! systemctl cat "$BRIDGE_UNIT" >/dev/null 2>&1; then
   echo "請先在 SleepAirlineS3/hardware 執行 ./install-kiosk.sh，安裝全螢幕與感測器服務。" >&2
@@ -23,6 +24,25 @@ if ! "$PYTHON" -c 'import qrcode' >/dev/null 2>&1; then
   echo "找不到 QR 程式庫。請先安裝 python3-qrcode。" >&2
   exit 1
 fi
+
+# This service has no desktop login session, so NetworkManager's interactive
+# authorization cannot prompt it while creating an AP or changing Wi-Fi.
+sudo mkdir -p /etc/polkit-1/rules.d
+cat <<EOF | sudo tee "$POLKIT_RULE" >/dev/null
+polkit.addRule(function(action, subject) {
+    if (subject.user == "$DEVICE_USER" &&
+        [
+            "org.freedesktop.NetworkManager.network-control",
+            "org.freedesktop.NetworkManager.settings.modify.system",
+            "org.freedesktop.NetworkManager.wifi.share.protected",
+            "org.freedesktop.NetworkManager.wifi.scan"
+        ].indexOf(action.id) >= 0) {
+        return polkit.Result.YES;
+    }
+});
+EOF
+sudo chmod 0644 "$POLKIT_RULE"
+sudo systemctl restart polkit.service
 
 sudo mkdir -p "/etc/systemd/system/${BRIDGE_UNIT}.d"
 printf '[Service]\nExecStart=\nExecStart=%s %s --identity-file %s\n' \

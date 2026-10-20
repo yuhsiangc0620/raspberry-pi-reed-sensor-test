@@ -36,7 +36,7 @@ python3 device_kiosk.py
 
 ### 與 S3 全螢幕開機整合
 
-請先等 S3 的配對開機 PR 合併。樹莓派必須已安裝 `~/SleepAirlineS3/hardware/install-kiosk.sh`；更新全螢幕腳本後，再安裝本專案的配對服務：
+樹莓派必須已安裝 `~/SleepAirlineS3/hardware/install-kiosk.sh`；更新全螢幕腳本後，再安裝本專案的配對服務：
 
 ```bash
 cd ~/SleepAirlineS3
@@ -56,9 +56,13 @@ sudo reboot
 
 首次使用時，裝置螢幕顯示配對 QR 和暫時 Wi-Fi。用手機掃 QR，在 APP 建立或恢復 Passenger ID，依指示加入裝置 Wi-Fi，並在**手機上的裝置本機設定頁**輸入家中 Wi-Fi。裝置連網且伺服器確認綁定後，同一個 Chromium 視窗會開啟正式飛機窗。旋鈕選方位；磁鐵靠近 GPIO17 起飛，靠近 GPIO27 降落。移開磁鐵不觸發動作。
 
+裝置暫時 Wi-Fi 只用於設定，**沒有網際網路是正常的**。請先在原本網路掃描 QR、取得配對授權，再切到暫時 Wi-Fi 開啟 `http://10.42.0.1:8766/setup`。送出家中 Wi-Fi 後，手機會離開裝置熱點；切回原網路或行動網路查看 APP 的綁定結果。安裝程式會設定配對服務使用 NetworkManager 所需的權限；配網成功後，該 Wi-Fi 設為自動連線且優先於舊網路。
+
 手動執行模式下，先停止舊的 Python 橋接程式與多餘的 Chromium 感測器分頁，避免 GPIO 或連接埠 8765 被佔用。`device_kiosk.py` 會自行啟動 `device_bridge.py`；使用上面的整合安裝時則由原有 S3 服務提供橋接，不需再手動啟動任何 Python 程式。
 
 ## 錯誤與維護
+
+配對卡住時，在樹莓派終端機先看 `curl -s localhost:8766/api/status`、`nmcli device status`、`nmcli networking connectivity` 和 `sudo journalctl -u sleep-airline-pairing -n 60 --no-pager`。熱點建立失敗的實際 `nmcli` 錯誤會記在服務日誌，不應只依畫面上的 Wi-Fi 開關提示判斷原因。請勿貼出裝置暫時密碼、家中 Wi-Fi 密碼或 `device.json`。
 
 正式飛機窗會持續顯示橋接程式中斷或 ADS1115 讀取失敗的錯誤，恢復後自動清除。詳情也會印在樹莓派終端機。若 ADC 無法讀值，可執行 `i2cdetect -y 1`，確認 `48` 是否出現，並檢查 VDD、GND、SDA、SCL、ADDR 與旋鈕接線。若瀏覽器無法讀取本機橋接，確認已允許網站存取本機裝置。音效首次播放可能需要點一下畫面。
 

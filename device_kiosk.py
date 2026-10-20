@@ -104,11 +104,14 @@ class Kiosk:
 
     def start_hotspot(self):
         with self.lock:
-            self.state["setupCode"] = secrets.token_urlsafe(32)
-            self.state["hotspotPassword"] = secrets.token_urlsafe(12)[:16]
-            self.state["hotspotSsid"] = f"SleepAirline-{self.state['deviceId'][-6:]}"
-            self.state["setupExpires"] = int(time.time()) + 15 * 60
-            self.persist()
+            if (time.time() >= self.state.get("setupExpires", 0) or
+                    not all(self.state.get(key) for key in ("setupCode", "hotspotPassword", "hotspotSsid"))):
+                self.state["setupCode"] = secrets.token_urlsafe(32)
+                self.state["hotspotPassword"] = secrets.token_urlsafe(12)[:16]
+                self.state["hotspotSsid"] = f"SleepAirline-{self.state['deviceId'][-6:]}"
+                self.state["setupExpires"] = int(time.time()) + 15 * 60
+                self.state["setupRevision"] = self.state.get("setupRevision", 0) + 1
+                self.persist()
             self.status = "setting_up_hotspot"
         if self.args.dry_run:
             self.status = "ready"
@@ -121,12 +124,20 @@ class Kiosk:
         ], capture_output=True, text=True, timeout=30)
         if result.returncode:
             self.status = "error"
-            self.message = "無法建立裝置熱點。請確認 Raspberry Pi Wi-Fi 已開啟。"
+            print(f"無法建立裝置熱點：{result.stderr.strip() or result.stdout.strip() or f'nmcli exit {result.returncode}'}", file=sys.stderr)
+            self.message = "無法建立裝置熱點。請檢查 Wi-Fi 與配對服務權限。"
             return
-        subprocess.run(["nmcli", "connection", "modify", HOTSPOT_NAME,
-                        "ipv4.addresses", f"{HOTSPOT_IP}/24", "ipv4.method", "shared"],
-                       capture_output=True, check=False)
-        subprocess.run(["nmcli", "connection", "up", HOTSPOT_NAME], capture_output=True, check=False)
+        # The setup AP is activated explicitly; it must not win at the next boot.
+        configured = subprocess.run(["nmcli", "connection", "modify", HOTSPOT_NAME,
+                                     "connection.autoconnect", "no", "ipv4.addresses", f"{HOTSPOT_IP}/24",
+                                     "ipv4.method", "shared"], capture_output=True, text=True)
+        activated = subprocess.run(["nmcli", "connection", "up", HOTSPOT_NAME],
+                                   capture_output=True, text=True) if not configured.returncode else configured
+        if activated.returncode:
+            self.status = "error"
+            self.message = "裝置熱點設定失敗。請檢查 NetworkManager 權限。"
+            print(f"裝置熱點啟用失敗：{activated.stderr.strip()}", file=sys.stderr)
+            return
         self.status = "ready"
 
     def current_qr(self):
@@ -162,9 +173,10 @@ class Kiosk:
 <div class="card"><span>暫時 Wi-Fi</span><strong>{self.state.get('hotspotSsid', '—')}</strong></div>
 <div class="card"><span>暫時密碼</span><strong>{self.state.get('hotspotPassword', '—')}</strong></div>
 <p id="progress">{self.message}</p>'''
-        script = """setInterval(async()=>{try{const s=await (await fetch('/api/status')).json();
+        revision = self.state.get("setupRevision", 0)
+        script = f"""const setupRevision={revision};setInterval(async()=>{{try{{const s=await (await fetch('/api/status')).json();
 if(s.paired)location.replace('""" + WINDOW_URL + """');
-else if(s.setupCodeChanged)location.reload();
+else if(s.setupRevision!==setupRevision||s.setupCodeChanged)location.reload();
 document.getElementById('progress').textContent=s.message||'';}catch{}},3000);"""
         return html_page("首次連線", content, script)
 
@@ -188,9 +200,12 @@ result.textContent='裝置正在連線。請切回原本網路，再返回 Sleep
 
     def offline_page(self):
         content = '''<p class="eyebrow">OFFLINE · 網路中斷</p><h1>航班暫時離線</h1>
-<p>旅客綁定已保留。請檢查家中 Wi-Fi；網路恢復後，飛機窗會在這個畫面自動開啟。</p>'''
+<p>旅客綁定已保留。裝置正在確認網路與雲端服務；恢復後會自動開啟飛機窗。</p>
+<p id="reason" role="status"></p>'''
         script = f"""setInterval(async()=>{{try{{const s=await (await fetch('/api/status')).json();
-if(s.online)location.replace({json.dumps(WINDOW_URL)});}}catch{{}}}},4000);"""
+if(!s.paired)location.replace('/device');
+else if(s.online)location.replace({json.dumps(WINDOW_URL)});
+document.getElementById('reason').textContent=s.message||'';}}catch{{}}}},4000);"""
         return html_page("暫時離線", content, script)
 
     def provision(self, ssid, password, grant, setup_code):
@@ -207,26 +222,52 @@ if(s.online)location.replace({json.dumps(WINDOW_URL)});}}catch{{}}}},4000);"""
     def _provision_worker(self, ssid, password, grant):
         try:
             if not self.args.dry_run:
+                # Let the local HTTP response reach the phone before wlan0 drops AP mode.
+                time.sleep(1.5)
                 # The single wlan0 radio leaves AP mode before joining the home SSID.
                 subprocess.run(["nmcli", "connection", "down", HOTSPOT_NAME], capture_output=True, check=False)
                 command = ["nmcli", "--wait", "60", "device", "wifi", "connect", ssid]
                 if password:
                     command += ["password", password]
                 command += ["ifname", self.args.interface]
-                result = subprocess.run(command, capture_output=True, timeout=75)
+                result = subprocess.run(command, capture_output=True, text=True, timeout=75)
                 if result.returncode:
                     raise RuntimeError("無法連接家中 Wi-Fi；請檢查名稱與密碼。")
+                connection = subprocess.run(["nmcli", "-g", "GENERAL.CON-UUID", "device", "show", self.args.interface],
+                                            capture_output=True, text=True, timeout=10)
+                connection_uuid = connection.stdout.strip()
+                if connection.returncode or not connection_uuid:
+                    raise RuntimeError("已連上 Wi-Fi，但無法儲存自動連線設定。")
+                priority = subprocess.run(["nmcli", "connection", "modify", connection_uuid,
+                                           "connection.autoconnect", "yes", "connection.autoconnect-priority", "999"],
+                                          capture_output=True, text=True, timeout=10)
+                if priority.returncode:
+                    raise RuntimeError("已連上 Wi-Fi，但無法設為預設網路。")
             self.status = "confirming"
             self.message = "正在確認裝置綁定…"
             if self.args.dry_run:
                 data = {"passengerId": "PAX-DRYRUN01"}
             else:
-                data = cloud_post('/devices/complete', {
+                payload = {
                     "deviceId": self.state["deviceId"],
                     "deviceSecret": self.state["deviceSecret"],
                     "setupCode": self.state["setupCode"],
                     "grant": grant,
-                })
+                }
+                # DNS and the default route can take a few seconds after Wi-Fi says connected.
+                for attempt in range(6):
+                    try:
+                        data = cloud_post('/devices/complete', payload)
+                        break
+                    except urllib.error.HTTPError as error:
+                        if error.code not in (429, 500, 502, 503, 504):
+                            raise
+                        if attempt == 5:
+                            raise
+                    except (OSError, urllib.error.URLError):
+                        if attempt == 5:
+                            raise
+                    time.sleep(min(3 * (attempt + 1), 12))
             with self.lock:
                 self.state["passengerId"] = data["passengerId"]
                 self.state.pop("setupCode", None)
@@ -236,8 +277,13 @@ if(s.online)location.replace({json.dumps(WINDOW_URL)});}}catch{{}}}},4000);"""
                 self.reconfiguring = False
                 self.status = "paired"
                 self.message = "綁定完成，正在開啟飛機窗。"
-        except (RuntimeError, OSError, urllib.error.URLError, ValueError, KeyError):
-            self.message = "連線或綁定未完成。請重新掃描更新後的配對碼再試一次。"
+        except (RuntimeError, OSError, urllib.error.URLError, ValueError, KeyError) as error:
+            print(f"配對未完成：{type(error).__name__}: {error}", file=sys.stderr)
+            if isinstance(error, urllib.error.HTTPError) and error.code in (400, 401, 403, 409):
+                self.state["setupExpires"] = 0
+                self.message = "配對授權已失效或綁定衝突。請重新掃描裝置配對碼。"
+            else:
+                self.message = str(error) if isinstance(error, RuntimeError) else "裝置連網後仍無法確認綁定。請檢查網路，再用同一配對碼重試。"
             self.status = "error"
             self.start_hotspot()
         finally:
@@ -254,13 +300,18 @@ if(s.online)location.replace({json.dumps(WINDOW_URL)});}}catch{{}}}},4000);"""
                     "deviceSecret": self.state["deviceSecret"],
                 })
                 self.online = True
+                self.message = ""
                 if data.get("status") == "unpaired":
                     self.state["passengerId"] = None
                     self.persist()
                     self.start_hotspot()
+            except urllib.error.HTTPError as error:
+                self.online = False
+                self.message = f"雲端綁定狀態暫時無法確認（HTTP {error.code}），稍後會自動重試。"
             except (OSError, urllib.error.URLError, ValueError):
                 # Keep the existing binding during transient Internet outages.
                 self.online = False
+                self.message = "目前無法聯絡雲端服務，請檢查網路；裝置會自動重試。"
 
 
 def handler_for(kiosk):
@@ -298,6 +349,7 @@ def handler_for(kiosk):
                     "paired": bool(kiosk.state.get("passengerId")) and not kiosk.reconfiguring,
                     "status": kiosk.status, "message": kiosk.message, "online": kiosk.online,
                     "bridgeExitCode": kiosk.bridge.poll() if kiosk.bridge else None,
+                    "setupRevision": kiosk.state.get("setupRevision", 0),
                     "setupCodeChanged": time.time() >= kiosk.state.get("setupExpires", 0)
                         and not kiosk.state.get("passengerId"),
                 }), "application/json")
@@ -356,11 +408,16 @@ def main():
             data = cloud_post('/devices/status', {"deviceId": kiosk.state["deviceId"],
                                                    "deviceSecret": kiosk.state["deviceSecret"]})
             kiosk.online = True
+            kiosk.message = ""
             if data.get("status") == "unpaired":
                 kiosk.state["passengerId"] = None
                 kiosk.persist()
+        except urllib.error.HTTPError as error:
+            kiosk.online = False
+            kiosk.message = f"雲端綁定狀態暫時無法確認（HTTP {error.code}），稍後會自動重試。"
         except (OSError, urllib.error.URLError, ValueError):
             kiosk.online = False
+            kiosk.message = "目前無法聯絡雲端服務，請檢查網路；裝置會自動重試。"
     if not kiosk.state.get("passengerId") or args.reconfigure_wifi:
         kiosk.start_hotspot()
     Thread(target=kiosk.monitor, daemon=True).start()
